@@ -10,7 +10,7 @@ import (
 
 	"encoding/binary"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 const (
@@ -294,8 +294,8 @@ func NewSuperblockWithReader(rs io.ReadSeeker) (sb *Superblock, err error) {
 
 	if sb.HasIncompatibleFeature(SbFeatureIncompatMetaBg) == true {
 		log.Panicf("meta_bg feature not supported")
-	} else if sb.HasIncompatibleFeature(SbFeatureIncompatFlexBg) == false {
-		log.Panicf("only filesystems with flex_bg are supported")
+		// } else if sb.HasIncompatibleFeature(SbFeatureIncompatFlexBg) == false {
+		// 	log.Panicf("only filesystems with flex_bg are supported")
 	} else if sb.HasIncompatibleFeature(SbFeatureIncompatCompression) == true {
 		log.Panicf("only uncompressed filesystems are supported")
 	} else if sb.HasIncompatibleFeature(SbFeatureIncompatFiletype) == false {
@@ -413,10 +413,7 @@ func (sb *Superblock) BlockCount() uint64 {
 func (sb *Superblock) BlockGroupCount() (blockGroups uint64) {
 	blockGroups = sb.BlockCount() / uint64(sb.data.SBlocksPerGroup)
 
-	// If we have less than one block-group's worth of blocks.
-	if blockGroups == 0 {
-		blockGroups = 1
-	}
+	blockGroups++
 
 	return blockGroups
 }

@@ -7,7 +7,7 @@ import (
 
 	"encoding/binary"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 const (
@@ -20,7 +20,7 @@ const (
 	BgdFlagInodeTableZeroed                  = uint16(0x4)
 )
 
-type BlockGroupDescriptorData struct {
+type BlockGroupDescriptorDataLo struct {
 	BgBlockBitmapLo     uint32 /* Blocks bitmap block */
 	BgInodeBitmapLo     uint32 /* Inodes bitmap block */
 	BgInodeTableLo      uint32 /* Inodes table block */
@@ -33,6 +33,9 @@ type BlockGroupDescriptorData struct {
 	BgInodeBitmapCsumLo uint16 /* Lower 16-bits of the inode bitmap checksum. */
 	BgItableUnusedLo    uint16 /* Unused inodes count */
 	BgChecksum          uint16 /* crc16(sb_uuid+group+desc) */
+}
+
+type BlockGroupDescriptorDataHi struct {
 	BgBlockBitmapHi     uint32 /* Blocks bitmap block MSB */
 	BgInodeBitmapHi     uint32 /* Inodes bitmap block MSB */
 	BgInodeTableHi      uint32 /* Inodes table block MSB */
@@ -44,6 +47,11 @@ type BlockGroupDescriptorData struct {
 	BgBlockBitmapCsumHi uint16 /* Upper 16-bits of the block bitmap checksum. */
 	BgInodeBitmapCsumHi uint16 /* Upper 16-bits of the inode bitmap checksum. */
 	BgReserved2         uint32 /* Padding to 64 bytes. */
+}
+
+type BlockGroupDescriptorData struct {
+	BlockGroupDescriptorDataLo
+	BlockGroupDescriptorDataHi
 }
 
 type BlockGroupDescriptor struct {
@@ -60,7 +68,13 @@ func NewBlockGroupDescriptorWithReader(r io.Reader, sb *Superblock) (bgd *BlockG
 
 	bgdd := new(BlockGroupDescriptorData)
 
-	err = binary.Read(r, binary.LittleEndian, bgdd)
+	var bgddlo BlockGroupDescriptorDataLo
+	if sb.Is64Bit() == true {
+		err = binary.Read(r, binary.LittleEndian, bgdd)
+	} else {
+		err = binary.Read(r, binary.LittleEndian, &bgddlo)
+		bgdd.BlockGroupDescriptorDataLo = bgddlo
+	}
 	log.PanicIf(err)
 
 	bgd = &BlockGroupDescriptor{

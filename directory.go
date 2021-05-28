@@ -3,7 +3,7 @@ package ext4
 import (
 	"fmt"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"io"
 	"path"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 type directoryWalkQueueItem struct {
@@ -63,7 +63,7 @@ func (dw *DirectoryWalk) openInode(inodeNumber int) (inode *Inode, db *Directory
 // Next steps through the entire tree starting at the given root inode, one
 // entry at a time. We guarantee that all adjacent entries will be processed
 // adjacently. This will not return the "." and ".." entries.
-func (dw *DirectoryWalk) Next() (fullPath string, de *DirectoryEntry, err error) {
+func (dw *DirectoryWalk) Next(bgdl *BlockGroupDescriptorList) (fullPath string, de *DirectoryEntry, err error) {
 	defer func() {
 		if state := recover(); state != nil {
 			err = log.Wrap(state.(error))
@@ -111,6 +111,10 @@ func (dw *DirectoryWalk) Next() (fullPath string, de *DirectoryEntry, err error)
 		// TODO(dustin): We get the impression that the "lost+found" inode isn't necessarily always in inode (11), so we only do a string match. Use `(superblock).SLpfIno` instead.
 		// TODO(dustin): "lost+found" produces some empty entries for our tiny, mostly untouched, mostly vanilla test image, which doesn't make sense to us. Just skipping for now. Revisit.
 		if de.IsDirectory() && filename != "lost+found" {
+			bgd, err := bgdl.GetWithAbsoluteInode(int(de.data.Inode))
+			log.PanicIf(err)
+			dw.blockGroupDescriptor = bgd
+
 			childInode, childDb, err := dw.openInode(int(de.data.Inode))
 			log.PanicIf(err)
 

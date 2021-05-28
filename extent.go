@@ -8,7 +8,7 @@ import (
 
 	"encoding/binary"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 const (
@@ -51,6 +51,14 @@ type ExtentLeafNode struct {
 	EeStartPhysicalBlockLo uint32 /* low 32 bits of physical block */
 }
 
+func (eln *ExtentLeafNode) FirstLogicalBlock() uint64 {
+	return uint64(eln.EeFirstLogicalBlock)
+}
+
+func (eln *ExtentLeafNode) LogicalBlockCount() uint64 {
+	return uint64(eln.EeLogicalBlockCount)
+}
+
 func (eln *ExtentLeafNode) StartPhysicalBlock() uint64 {
 	return (uint64(eln.EeStartPhysicalBlockHi) << 32) | uint64(eln.EeStartPhysicalBlockLo)
 }
@@ -83,7 +91,7 @@ func NewExtentNavigatorWithReadSeeker(rs io.ReadSeeker, inode *Inode) *ExtentNav
 // block that it's found in.
 //
 // "logical", meaning that (0) refers to the first block of this inode's data.
-func (en *ExtentNavigator) Read(offset uint64) (data []byte, err error) {
+func (en *ExtentNavigator) Read(offset uint64) (data []byte, pos uint64, err error) {
 	defer func() {
 		if state := recover(); state != nil {
 			err = log.Wrap(state.(error))
@@ -97,6 +105,7 @@ func (en *ExtentNavigator) Read(offset uint64) (data []byte, err error) {
 	pBlockOffset := offset % blockSize
 
 	inodeIblock := en.inode.Data().IBlock[:]
+
 	pBlockNumber, err := en.parseHeader(inodeIblock, lBlockNumber, false)
 	log.PanicIf(err)
 
@@ -107,8 +116,9 @@ func (en *ExtentNavigator) Read(offset uint64) (data []byte, err error) {
 
 	// If the inode's data stops mid-block, take just that amount.
 	dataLength := uint64(math.Min(float64(en.inode.Size()-offset), float64(blockSize-pBlockOffset)))
+	pos = pBlockNumber * uint64(sb.blockSize)
 
-	return rawPBlockData[pBlockOffset : pBlockOffset+dataLength], nil
+	return rawPBlockData[pBlockOffset : pBlockOffset+dataLength], pos, nil
 }
 
 // parseHeader parses the extent header and then recursively processes the
@@ -232,5 +242,100 @@ func (en *ExtentNavigator) parseHeader(extentHeaderData []byte, lBlock uint64, h
 		log.PanicIf(err)
 
 		return dataPBlock, nil
+	}
+}
+
+func (en *ExtentNavigator) ReadExtentLeafNodes() (eLeafNodes []ExtentLeafNode, err error) {
+	defer func() {
+		if state := recover(); state != nil {
+			err = log.Wrap(state.(error))
+		}
+	}()
+
+	inodeIblock := en.inode.Data().IBlock[:]
+
+	eLeafNodes, err = en.parseExtentLeafNodes(inodeIblock, false)
+	log.PanicIf(err)
+
+	return eLeafNodes, nil
+}
+
+func (en *ExtentNavigator) parseExtentLeafNodes(extentHeaderData []byte, hasTailChecksum bool) (eLeafNodes []ExtentLeafNode, err error) {
+	defer func() {
+		if state := recover(); state != nil {
+			err = log.Wrap(state.(error))
+		}
+	}()
+
+	b := bytes.NewBuffer(extentHeaderData)
+
+	eh := new(ExtentHeaderNode)
+
+	err = binary.Read(b, binary.LittleEndian, eh)
+	log.PanicIf(err)
+
+	if eh.EhMagic != ExtentMagic {
+		log.Panicf("extent-header magic-bytes not correct: (%04x)", eh.EhMagic)
+	}
+
+	if eh.EhDepth == 0 {
+		leafNodes := make([]ExtentLeafNode, eh.EhEntryCount)
+
+		err = binary.Read(b, binary.LittleEndian, &leafNodes)
+		log.PanicIf(err)
+
+		if hasTailChecksum == true {
+			et := new(ExtentTail)
+
+			err := binary.Read(b, binary.LittleEndian, et)
+			log.PanicIf(err)
+
+			et = et
+		}
+
+		return leafNodes, nil
+	} else {
+		indexNodes := make([]ExtentIndexNode, eh.EhEntryCount)
+
+		err = binary.Read(b, binary.LittleEndian, &indexNodes)
+		log.PanicIf(err)
+
+		if hasTailChecksum == true {
+			et := new(ExtentTail)
+
+			err := binary.Read(b, binary.LittleEndian, et)
+			log.PanicIf(err)
+
+			et = et
+		}
+
+		leafNodes := make([]ExtentLeafNode, 0)
+		for _, ein := range indexNodes {
+			pBlock := ein.LeafPhysicalBlock()
+
+			sb := en.inode.BlockGroupDescriptor().Superblock()
+
+			data, err := sb.ReadPhysicalBlock(pBlock, uint64(ExtentHeaderSize))
+			log.PanicIf(err)
+
+			nonleafHeaderBuffer := bytes.NewBuffer(data)
+
+			nextEh := new(ExtentHeaderNode)
+
+			err = binary.Read(nonleafHeaderBuffer, binary.LittleEndian, nextEh)
+			log.PanicIf(err)
+
+			childExtentsLength := ExtentHeaderSize + ExtentIndexAndLeafSize*nextEh.EhEntryCount + Ext4ExtentChecksumTailSize
+
+			childExtentData, err := sb.ReadPhysicalBlock(pBlock, uint64(childExtentsLength))
+			log.PanicIf(err)
+
+			nodes, err := en.parseExtentLeafNodes(childExtentData, true)
+			log.PanicIf(err)
+
+			leafNodes = append(leafNodes, nodes...)
+		}
+
+		return leafNodes, nil
 	}
 }

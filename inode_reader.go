@@ -4,7 +4,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/dsoprea/go-logging"
+	log "github.com/dsoprea/go-logging"
 )
 
 // InodeReader fulfills the `io.Reader` interface to read arbitrary amounts of
@@ -40,7 +40,7 @@ func (ir *InodeReader) fill() (err error) {
 			return io.EOF
 		}
 
-		data, err := ir.en.Read(ir.bytesRead)
+		data, _, err := ir.en.Read(ir.bytesRead)
 		log.PanicIf(err)
 
 		ir.currentBlock = data
