@@ -1,6 +1,7 @@
 package ext4
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -87,6 +88,18 @@ const (
 	SbEncryptAlgoAes256Gcm = uint8(2)
 	SbEncryptAlgoAes256Cbc = uint8(3)
 )
+
+func CheckBlockGroup0(rs io.ReadSeeker) (ok bool) {
+	expected := make([]byte, Superblock0Offset)
+	actual := make([]byte, Superblock0Offset)
+	_, err := rs.Read(actual)
+	if err != nil {
+		return false
+	} else if !bytes.Equal(actual, expected) {
+		return false
+	}
+	return true
+}
 
 type SuperblockData struct {
 	// See fs/ext4/ext4.h .
